@@ -6,17 +6,14 @@ import os
 st.set_page_config(page_title="Formation Correlator Pro", layout="centered")
 
 st.title("🛢️ Formation Name Correlator")
-st.write("O arquivo de referência foi carregado do sistema. Basta subir o arquivo de dados.")
 
-# Nome do arquivo que você subiu para o GitHub
 REFERENCE_FILE = "reference.xlsx"
 
-# Função para carregar a biblioteca de referência
 
-
-@st.cache_data  # Isso faz com que o arquivo de referência seja lido apenas uma vez, poupando memória
+@st.cache_data
 def load_reference(file_path):
     if os.path.exists(file_path):
+        # Carrega o arquivo de referência
         return pd.read_excel(file_path)
     return None
 
@@ -24,51 +21,62 @@ def load_reference(file_path):
 df_ref = load_reference(REFERENCE_FILE)
 
 if df_ref is not None:
-    # Mapeamento fixo baseado nas colunas que vimos antes
-    # Ajuste os nomes das colunas abaixo se forem diferentes no seu reference.xlsx
-    COL_LIB_FULL = 'formation Tops/Reservoir.1'
-    COL_LIB_CODE = 'Short Name.1'
+    try:
+        # Usando iloc para pegar as colunas pela posição caso o nome mude
+        # No seu arquivo original:
+        # Coluna J é o índice 9 (Short Name)
+        # Coluna K é o índice 10 (Full Name)
 
-    mapping = dict(zip(
-        df_ref[COL_LIB_FULL].astype(str).str.strip(),
-        df_ref[COL_LIB_CODE].astype(str).str.strip()
-    ))
+        # Vamos tentar identificar as colunas dinamicamente
+        # Se o arquivo tiver muitas colunas vazias, pegamos as duas últimas que têm dados
+        cols = df_ref.dropna(axis=1, how='all').columns
 
-    st.success("✅ Biblioteca de referência carregada com sucesso!")
+        # Mapeamento: usamos a última coluna como Nome Completo e a penúltima como Abreviação
+        # Isso geralmente corresponde ao layout J e K que você enviou
+        mapping = dict(zip(
+            df_ref[cols[-1]].astype(str).str.strip(),
+            df_ref[cols[-2]].astype(str).str.strip()
+        ))
 
-    # Upload do arquivo de trabalho
-    data_file = st.file_uploader(
-        "Suba o arquivo de dados para processar", type="xlsx")
+        st.success(
+            f"✅ Biblioteca carregada ({len(mapping)} formações encontradas)")
 
-    if data_file:
-        df_data = pd.read_excel(data_file)
+        data_file = st.file_uploader(
+            "Suba o arquivo de dados para processar", type="xlsx")
 
-        # Identifica as colunas automaticamente ou permite seleção
-        col_target = 'formation Tops/Reservoir'
-        col_result = 'Short Name'
+        if data_file:
+            df_data = pd.read_excel(data_file)
 
-        if st.button("Correlacionar e Gerar Arquivo"):
-            def match_row(row):
-                val = str(row[col_target]).strip()
-                # Busca na biblioteca fixa; se não achar, mantém o que está na célula
-                return mapping.get(val, row[col_result])
+            # Ajuste os nomes das colunas do arquivo de TRABALHO (o que você faz upload)
+            # No arquivo que você enviou, elas são 'formation Tops/Reservoir' (D) e 'Short Name' (E)
+            COL_TARGET = 'formation Tops/Reservoir'
+            COL_RESULT = 'Short Name'
 
-            df_data[col_result] = df_data.apply(match_row, axis=1)
+            if st.button("Correlacionar e Gerar Arquivo"):
+                if COL_TARGET in df_data.columns:
+                    def match_row(row):
+                        val = str(row[COL_TARGET]).strip()
+                        return mapping.get(val, row[COL_RESULT] if COL_RESULT in df_data.columns else "")
 
-            st.success("Processamento concluído!")
-            st.dataframe(df_data[[col_target, col_result]].head(10))
+                    df_data[COL_RESULT] = df_data.apply(match_row, axis=1)
 
-            # Preparar download
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df_data.to_excel(writer, index=False)
+                    st.success("Processamento concluído!")
 
-            st.download_button(
-                label="📥 Baixar Arquivo Processado",
-                data=output.getvalue(),
-                file_name="resultado_correlacionado.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+                    # Gerar Excel
+                    output = BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        df_data.to_excel(writer, index=False)
+
+                    st.download_button(
+                        label="📥 Baixar Arquivo Processado",
+                        data=output.getvalue(),
+                        file_name="resultado_correlacionado.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                else:
+                    st.error(
+                        f"A coluna '{COL_TARGET}' não foi encontrada no arquivo enviado.")
+    except Exception as e:
+        st.error(f"Erro ao processar a biblioteca: {e}")
 else:
-    st.error(
-        f"Arquivo '{REFERENCE_FILE}' não encontrado no repositório. Certifique-se de que ele foi enviado via Git.")
+    st.error(f"Arquivo '{REFERENCE_FILE}' não encontrado no GitHub.")
